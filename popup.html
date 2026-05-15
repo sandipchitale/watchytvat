@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Watch YT At</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon48.png" alt="" class="logo">
+    <h1>Watch YT At</h1>
+  </div>
+
+  <div id="current-video" class="section hidden">
+    <div id="video-title" class="video-title"></div>
+    <button id="save-btn" class="save-btn">
+      Save at <span id="current-time">–</span>
+    </button>
+  </div>
+
+  <div id="not-on-video" class="section">
+    <p class="muted">Open a YouTube video to save your position.</p>
+  </div>
+
+  <div class="section">
+    <div class="section-header">Saved in "Watch Later At"</div>
+    <div id="items-list"></div>
+    <div id="empty-state" class="muted hidden">No saved items yet.</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+.wyta-resume-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #ff0000;
+  border-radius: 3px;
+  text-decoration: none;
+  line-height: 1.5;
+  transition: background 0.15s;
+}
+
+.wyta-resume-btn:hover {
+  background: #cc0000;
+  text-decoration: none;
+}
