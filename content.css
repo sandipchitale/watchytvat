@@ -17,3 +17,51 @@
   background: #cc0000;
   text-decoration: none;
 }
+
+.wyta-menu-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.wyta-menu-trigger {
+  cursor: pointer;
+  user-select: none;
+}
+
+.wyta-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  z-index: 9999;
+  overflow: hidden;
+  min-width: 100%;
+}
+
+.wyta-menu.wyta-menu-open {
+  display: block;
+}
+
+.wyta-menu-item {
+  display: block;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #cc0000;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.wyta-menu-item + .wyta-menu-item {
+  border-top: 1px solid rgba(255,255,255,0.25);
+}
+
+.wyta-menu-item:hover {
+  background: #990000;
+  text-decoration: none;
+}

@@ -72,51 +72,70 @@ async function loadItems() {
     return;
   }
 
+  // Group by videoId, preserving order of first occurrence
+  const groupMap = new Map();
   items.forEach(item => {
-    // Bookmarks stored flat: item.seconds, item.at, item.saved
-    const at      = item.at || '?';
-    const seconds = item.seconds ?? 0;
-    const saved   = item.saved || '';
+    if (!groupMap.has(item.videoId)) {
+      groupMap.set(item.videoId, { title: item.title, videoId: item.videoId, timestamps: [] });
+    }
+    groupMap.get(item.videoId).timestamps.push({
+      entryId: item.id || item.playlistItemId,  // id for new entries, playlistItemId fallback for legacy
+      seconds: item.seconds ?? 0,
+      at: item.at || '?',
+      saved: item.saved || '',
+    });
+  });
 
-    const row = document.createElement('div');
-    row.className = 'item-row';
+  groupMap.forEach(group => {
+    const groupEl = document.createElement('div');
+    groupEl.className = 'item-group';
 
-    const link = document.createElement('a');
-    link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(item.videoId)}&t=${seconds}`;
-    link.target = '_blank';
-    link.rel = 'noopener';
-    link.className = 'item-link';
-    link.innerHTML = `
-      <div class="item-title">${escapeHtml(item.title)}</div>
-      <div class="item-meta">at ${escapeHtml(at)}${saved ? ` &middot; ${escapeHtml(saved)}` : ''}</div>
-    `;
+    const titleEl = document.createElement('div');
+    titleEl.className = 'item-group-title';
+    titleEl.textContent = group.title;
+    groupEl.appendChild(titleEl);
 
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'remove-btn';
-    removeBtn.textContent = '✕';
-    removeBtn.title = 'Remove from Watch Later At';
-    removeBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      row.style.opacity = '0.4';
-      removeBtn.disabled = true;
-      const result = await chrome.runtime.sendMessage({
-        action: 'remove',
-        playlistItemId: item.playlistItemId,
-        videoId: item.videoId,
+    group.timestamps.forEach(ts => {
+      const row = document.createElement('div');
+      row.className = 'item-row';
+
+      const link = document.createElement('a');
+      link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(group.videoId)}&t=${ts.seconds}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.className = 'item-link';
+      link.innerHTML = `<div class="item-meta">▶ at ${escapeHtml(ts.at)}${ts.saved ? ` &middot; ${escapeHtml(ts.saved)}` : ''}</div>`;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-btn';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove this timestamp';
+      removeBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        row.style.opacity = '0.4';
+        removeBtn.disabled = true;
+        const result = await chrome.runtime.sendMessage({
+          action: 'remove',
+          entryId: ts.entryId,
+          videoId: group.videoId,
+        });
+        if (result?.error) {
+          row.style.opacity = '1';
+          removeBtn.disabled = false;
+        } else {
+          row.remove();
+          if (!groupEl.querySelector('.item-row')) groupEl.remove();
+          if (!list.children.length) empty.classList.remove('hidden');
+        }
       });
-      if (result?.error) {
-        row.style.opacity = '1';
-        removeBtn.disabled = false;
-      } else {
-        row.remove();
-        if (!list.children.length) empty.classList.remove('hidden');
-      }
+
+      row.appendChild(link);
+      row.appendChild(removeBtn);
+      groupEl.appendChild(row);
     });
 
-    row.appendChild(link);
-    row.appendChild(removeBtn);
-    list.appendChild(row);
+    list.appendChild(groupEl);
   });
 }
 

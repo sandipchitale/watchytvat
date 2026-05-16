@@ -206,24 +206,36 @@ async function writeBookmarks(token, bookmarks) {
 // Extension actions
 // ---------------------------------------------------------------------------
 
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+
 async function saveVideoAt({ videoId, seconds, at, title, thumbnail }) {
   const token = await getAuthToken(true);
-
-  // Add to YouTube playlist for cross-device visibility
-  const playlistId = await findOrCreatePlaylist(token);
-  const ytItem = await ytCall('POST', '/playlistItems?part=snippet', token, {
-    snippet: {
-      playlistId,
-      resourceId: { kind: 'youtube#video', videoId },
-    },
-  });
-  const playlistItemId = ytItem?.id || null;
-
-  // Store timestamp + metadata in Drive appDataFolder
   const bookmarks = await readBookmarks(token);
-  // Remove any prior bookmark for this video before adding the new one
-  const filtered = bookmarks.filter(b => b.videoId !== videoId);
+
+  // Reuse the existing YouTube playlist item if the video was saved before;
+  // only add a new playlist item on the very first save for this video.
+  const existingForVideo = bookmarks.find(b => b.videoId === videoId);
+  let playlistItemId;
+  let playlistId;
+
+  if (existingForVideo) {
+    playlistItemId = existingForVideo.playlistItemId;
+    playlistId = (await chrome.storage.local.get(YT_PLAYLIST_KEY))[YT_PLAYLIST_KEY];
+  } else {
+    playlistId = await findOrCreatePlaylist(token);
+    const ytItem = await ytCall('POST', '/playlistItems?part=snippet', token, {
+      snippet: {
+        playlistId,
+        resourceId: { kind: 'youtube#video', videoId },
+      },
+    });
+    playlistItemId = ytItem?.id || null;
+  }
+
   const updated = [{
+    id: generateId(),
     videoId,
     playlistItemId,
     title,
@@ -231,16 +243,21 @@ async function saveVideoAt({ videoId, seconds, at, title, thumbnail }) {
     seconds,
     at,
     saved: new Date().toISOString().slice(0, 10),
-  }, ...filtered];
+  }, ...bookmarks];
   await writeBookmarks(token, updated);
-  await updatePlaylistDescription(token, playlistId, updated);
+  if (playlistId) await updatePlaylistDescription(token, playlistId, updated);
 
   return { success: true };
 }
 
 function buildPlaylistDescription(bookmarks) {
-  if (!bookmarks.length) return 'Resume at: —';
-  return bookmarks.map(b => `${b.at} - ${b.title}`).join('\n');
+  if (!bookmarks.length) return '—';
+  const byVideo = new Map();
+  bookmarks.forEach(b => {
+    if (!byVideo.has(b.videoId)) byVideo.set(b.videoId, { title: b.title, ats: [] });
+    byVideo.get(b.videoId).ats.push(b.at);
+  });
+  return [...byVideo.values()].map(v => `${v.ats.join(', ')} - ${v.title}`).join('\n');
 }
 
 async function updatePlaylistDescription(token, playlistId, bookmarks) {
@@ -287,17 +304,22 @@ async function getPlaylistItems() {
   return synced;
 }
 
-async function removePlaylistItem(playlistItemId, videoId) {
+async function removePlaylistItem(entryId, videoId) {
   const token = await getAuthToken(true);
+  const bookmarks = await readBookmarks(token);
 
-  // Remove from YouTube playlist
-  if (playlistItemId) {
-    await ytCall('DELETE', `/playlistItems?id=${encodeURIComponent(playlistItemId)}`, token);
+  // Find the specific Drive entry (by id; fall back to playlistItemId for legacy entries)
+  const target = bookmarks.find(b => b.id ? b.id === entryId : b.playlistItemId === entryId);
+  if (!target) return { success: true };
+
+  const remaining = bookmarks.filter(b => b !== target);
+
+  // Remove from YouTube playlist only when this was the last timestamp for the video
+  const videoStillSaved = remaining.some(b => b.videoId === videoId);
+  if (target.playlistItemId && !videoStillSaved) {
+    await ytCall('DELETE', `/playlistItems?id=${encodeURIComponent(target.playlistItemId)}`, token);
   }
 
-  // Remove from Drive bookmarks and refresh playlist description
-  const bookmarks = await readBookmarks(token);
-  const remaining = bookmarks.filter(b => b.videoId !== videoId && b.playlistItemId !== playlistItemId);
   await writeBookmarks(token, remaining);
   const playlistId = await getPlaylistId();
   await updatePlaylistDescription(token, playlistId, remaining);
@@ -315,7 +337,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'save':          return saveVideoAt(message.data);
       case 'list':          return getPlaylistItems();
       case 'getPlaylistId': return getPlaylistId();
-      case 'remove':        return removePlaylistItem(message.playlistItemId, message.videoId);
+      case 'remove':        return removePlaylistItem(message.entryId, message.videoId);
       default:              throw new Error(`Unknown action: ${message.action}`);
     }
   };

@@ -41,17 +41,49 @@ function applyResumeButtons() {
     if (!anchor) return;
     const href = anchor.getAttribute('href') || '';
     const videoId = new URLSearchParams(href.split('?')[1] || '').get('v');
-    if (!videoId || !activeItemMap[videoId]) return;
-
-    const { seconds, at } = activeItemMap[videoId];
-    const btn = document.createElement('a');
-    btn.className = 'wyta-resume-btn';
-    btn.href = `https://www.youtube.com/watch?v=${videoId}&t=${seconds}`;
-    btn.textContent = `▶ Resume at ${at}`;
-    btn.title = `Resume from ${at} (${seconds}s)`;
+    const timestamps = videoId && activeItemMap[videoId];
+    if (!timestamps || !timestamps.length) return;
 
     const meta = anchor.closest('#meta') || anchor.parentElement;
-    meta.appendChild(btn);
+
+    if (timestamps.length === 1) {
+      const { seconds, at } = timestamps[0];
+      const btn = document.createElement('a');
+      btn.className = 'wyta-resume-btn';
+      btn.href = `https://www.youtube.com/watch?v=${videoId}&t=${seconds}`;
+      btn.textContent = `▶ Resume at ${at}`;
+      btn.title = `Resume from ${at} (${seconds}s)`;
+      meta.appendChild(btn);
+    } else {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'wyta-menu-wrapper';
+
+      const trigger = document.createElement('span');
+      trigger.className = 'wyta-resume-btn wyta-menu-trigger';
+      trigger.textContent = `▶ Resume ▾`;
+      trigger.title = `${timestamps.length} saved timestamps — click to choose`;
+
+      const menu = document.createElement('div');
+      menu.className = 'wyta-menu';
+      timestamps.forEach(({ seconds, at }) => {
+        const item = document.createElement('a');
+        item.className = 'wyta-menu-item';
+        item.href = `https://www.youtube.com/watch?v=${videoId}&t=${seconds}`;
+        item.textContent = `▶ ${at}`;
+        menu.appendChild(item);
+      });
+
+      trigger.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        menu.classList.toggle('wyta-menu-open');
+      });
+
+      wrapper.appendChild(trigger);
+      wrapper.appendChild(menu);
+      meta.appendChild(wrapper);
+    }
+
     row.setAttribute('data-wyta-injected', '1');
   });
 }
@@ -91,7 +123,10 @@ async function setupPlaylistInjection() {
 
   activeItemMap = {};
   items.forEach(item => {
-    if (item.seconds != null) activeItemMap[item.videoId] = { seconds: item.seconds, at: item.at };
+    if (item.seconds != null) {
+      if (!activeItemMap[item.videoId]) activeItemMap[item.videoId] = [];
+      activeItemMap[item.videoId].push({ seconds: item.seconds, at: item.at });
+    }
   });
   console.log('[WatchYTAt] Loaded', Object.keys(activeItemMap).length, 'items');
 
@@ -121,3 +156,13 @@ new MutationObserver(() => {
 }).observe(document.documentElement, { childList: true, subtree: true });
 
 setupPlaylistInjection();
+
+if (!window._wytaMenuListenerAdded) {
+  window._wytaMenuListenerAdded = true;
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.wyta-menu-wrapper')) {
+      document.querySelectorAll('.wyta-menu.wyta-menu-open')
+        .forEach(m => m.classList.remove('wyta-menu-open'));
+    }
+  }, true);
+}
