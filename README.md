@@ -1,4 +1,4 @@
-# Watch YT At
+# Watch YT Videos At
 
 Save a YouTube video at its current timestamp into a private **"Watch Later At"** playlist. Resume from exactly that point — on any device — without losing your place.
 
@@ -79,7 +79,7 @@ Edit `manifest.json`:
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked** and select this folder
-4. The Watch YT At icon appears in your toolbar
+4. The Watch YT Videos At icon appears in your toolbar
 
 On first use Chrome shows a one-time consent screen. After that the extension uses your existing Google login silently. If you ever add a new scope to the manifest, Chrome may return a stale cached token; the extension handles this automatically by detecting 401/403 scope errors and re-requesting a fresh token.
 
@@ -132,7 +132,7 @@ The following prompt, given to a capable code-generation model, should reproduce
 ---
 
 ```
-Build a Chrome extension (Manifest V3) called "Watch YT At" that saves YouTube videos at
+Build a Chrome extension (Manifest V3) called "Watch YT Videos At" that saves YouTube videos at
 their current playback timestamp so the user can resume from exactly that position on any
 device. Use only the user's existing Google account in Chrome — no separate login flow.
 
@@ -342,7 +342,7 @@ CONTENT STYLES (content.css)
 POPUP (popup.html + popup.js + popup.css)
 ──────────────────────────────────────────────────────────────────────────────
 HTML layout:
-  .header — red bar with icon48 + "Watch YT At" title
+  .header — red bar with icon48 + "Watch YT VideosAt" title
   #current-video.section.hidden — video title + "Save at X:XX" button (shown on watch pages)
   #not-on-video.section — "Open a YouTube video to save your position."
   .section — "Saved in 'Watch Later At'" header with #playlist-link (↗ icon, initially hidden)

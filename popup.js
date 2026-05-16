@@ -52,7 +52,7 @@ async function onSave() {
   if (result?.error) {
     btn.textContent = 'Error — try again';
     btn.disabled = false;
-    console.error('[Watch YT At] Save error:', result.error);
+    console.error('[Watch YT Videos At] Save error:', result.error);
   } else {
     btn.textContent = '✓ Saved!';
     setTimeout(() => window.close(), 900);

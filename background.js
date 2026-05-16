@@ -1,13 +1,13 @@
-const YT_API  = 'https://www.googleapis.com/youtube/v3';
-const DR_API  = 'https://www.googleapis.com/drive/v3';
+const YT_API = 'https://www.googleapis.com/youtube/v3';
+const DR_API = 'https://www.googleapis.com/drive/v3';
 const DR_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
-const PLAYLIST_NAME      = 'Watch Later At';
-const YT_PLAYLIST_KEY    = 'watchYtAtPlaylistId';
-const DRIVE_FILE_KEY     = 'watchYtAtDriveFileId';
+const PLAYLIST_NAME = 'Watch Later At';
+const YT_PLAYLIST_KEY = 'watchYtAtPlaylistId';
+const DRIVE_FILE_KEY = 'watchYtAtDriveFileId';
 const BOOKMARKS_FILENAME = 'watchytvat-bookmarks.json';
-const LAST_SYNC_KEY      = 'watchYtAtLastSync';
-const SYNC_STALE_MS      = 5 * 60 * 1000; // skip YT cross-reference if synced within 5 min
+const LAST_SYNC_KEY = 'watchYtAtLastSync';
+const SYNC_STALE_MS = 5 * 60 * 1000; // skip YT cross-reference if synced within 5 min
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -67,7 +67,7 @@ async function findOrCreatePlaylist(token) {
   } while (pageToken);
 
   const created = await ytCall('POST', '/playlists?part=snippet,status', token, {
-    snippet: { title: PLAYLIST_NAME, description: 'Videos saved with timestamp by the Watch YT At extension.' },
+    snippet: { title: PLAYLIST_NAME, description: 'Videos saved with timestamp by the Watch YT Videos At extension.' },
     status: { privacyStatus: 'private' },
   });
   await chrome.storage.local.set({ [YT_PLAYLIST_KEY]: created.id });
@@ -356,11 +356,11 @@ async function removePlaylistItem(entryId, videoId) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handle = async () => {
     switch (message.action) {
-      case 'save':          return saveVideoAt(message.data);
-      case 'list':          return getPlaylistItems();
+      case 'save': return saveVideoAt(message.data);
+      case 'list': return getPlaylistItems();
       case 'getPlaylistId': return getPlaylistId();
-      case 'remove':        return removePlaylistItem(message.entryId, message.videoId);
-      default:              throw new Error(`Unknown action: ${message.action}`);
+      case 'remove': return removePlaylistItem(message.entryId, message.videoId);
+      default: throw new Error(`Unknown action: ${message.action}`);
     }
   };
   handle()
