@@ -29,6 +29,7 @@ async function init() {
 
   document.getElementById('save-btn').addEventListener('click', onSave);
   loadItems();
+  loadPlaylistLink();
 }
 
 async function onSave() {
@@ -117,6 +118,14 @@ async function loadItems() {
     row.appendChild(removeBtn);
     list.appendChild(row);
   });
+}
+
+async function loadPlaylistLink() {
+  const playlistId = await chrome.runtime.sendMessage({ action: 'getPlaylistId' });
+  if (typeof playlistId !== 'string') return;
+  const link = document.getElementById('playlist-link');
+  link.href = `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`;
+  link.classList.remove('hidden');
 }
 
 init();
