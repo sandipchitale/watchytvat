@@ -240,7 +240,7 @@ async function saveVideoAt({ videoId, seconds, at, title, thumbnail }) {
 
 function buildPlaylistDescription(bookmarks) {
   if (!bookmarks.length) return 'Resume at: —';
-  return 'Resume at: ' + bookmarks.map(b => `${b.at} - ${b.title}`).join(', ');
+  return bookmarks.map(b => `${b.at} - ${b.title}`).join('\n');
 }
 
 async function updatePlaylistDescription(token, playlistId, bookmarks) {
@@ -256,7 +256,35 @@ async function updatePlaylistDescription(token, playlistId, bookmarks) {
 
 async function getPlaylistItems() {
   const token = await getAuthToken(true);
-  return readBookmarks(token);
+  const bookmarks = await readBookmarks(token);
+  if (!bookmarks.length) return bookmarks;
+
+  // Cross-reference with the actual YouTube playlist to remove stale entries
+  // (items the user deleted directly from YouTube without using the extension).
+  const cached = await chrome.storage.local.get(YT_PLAYLIST_KEY);
+  const playlistId = cached[YT_PLAYLIST_KEY];
+  if (!playlistId) return bookmarks;
+
+  let activeIds;
+  try {
+    activeIds = new Set();
+    let pageToken = '';
+    do {
+      const qs = `/playlistItems?part=id&playlistId=${encodeURIComponent(playlistId)}&maxResults=50${pageToken ? `&pageToken=${pageToken}` : ''}`;
+      const data = await ytCall('GET', qs, token);
+      data.items?.forEach(item => activeIds.add(item.id));
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
+  } catch {
+    return bookmarks; // sync failed — return what Drive has
+  }
+
+  const synced = bookmarks.filter(b => !b.playlistItemId || activeIds.has(b.playlistItemId));
+  if (synced.length < bookmarks.length) {
+    await writeBookmarks(token, synced);
+    await updatePlaylistDescription(token, playlistId, synced);
+  }
+  return synced;
 }
 
 async function removePlaylistItem(playlistItemId, videoId) {
