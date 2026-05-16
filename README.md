@@ -8,7 +8,7 @@ Save a YouTube video at its current timestamp into a private **"Watch Later At"*
 - **Multiple timestamps per video** — save the same video at different points; each is tracked separately
 - **Cross-device sync** — timestamps are stored in your Google Drive `appDataFolder` and sync automatically via your Google account
 - **Resume buttons on the playlist page** — opening the "Watch Later At" playlist injects a **▶ Resume at X:XX** button (or a **▶ Resume ▾** dropdown for multiple timestamps) next to each video
-- **Popup quick-list** — the toolbar popup shows all saved videos grouped by title, with individual ✕ buttons to remove any timestamp; includes a direct link to the playlist
+- **Popup quick-list** — the toolbar popup shows all saved videos grouped by thumbnail + title, with individual ✕ buttons to remove any timestamp; includes a direct link to the playlist
 
 ## How it works
 
@@ -20,12 +20,13 @@ YouTube Data API v3          Google Drive appDataFolder
     per video (for            saved timestamp:
     cross-device              { id, videoId,
     visibility)                 playlistItemId, title,
-                                seconds, at, saved }
+                                thumbnail, seconds,
+                                at, saved }
 ```
 
-1. **Saving** — the extension reads the current video time from the page, adds the video to the "Watch Later At" YouTube playlist (first save only; subsequent timestamps reuse the same playlist item), then prepends a bookmark entry to the Drive JSON file.
-2. **Listing** — the popup reads the Drive file and cross-references with the live YouTube playlist, automatically dropping any bookmarks whose playlist item was deleted outside the extension.
-3. **Resume injection** — on the playlist page the content script matches each row's `videoId` against the Drive bookmarks and injects a resume button or timestamp-picker dropdown.
+1. **Saving** — the extension reads the current video time from the page, adds the video to the "Watch Later At" YouTube playlist (first save only; subsequent timestamps reuse the same playlist item), then prepends a bookmark entry to the Drive JSON file. The thumbnail URL is derived for free from the `videoId` — no extra API call.
+2. **Listing** — the popup reads the Drive file. To keep things snappy, it only cross-references against the live YouTube playlist if the last sync was more than 5 minutes ago (lazy sync with `watchYtAtLastSync` in `chrome.storage.local`). When a sync does run, any bookmark whose playlist item was deleted outside the extension is automatically pruned. The sync cache is invalidated immediately on manual removal so deleted items never linger.
+3. **Resume injection** — on the playlist page the content script matches each row's `videoId` against the Drive bookmarks and injects a resume button or timestamp-picker dropdown. Row injection uses a `MutationObserver` on the playlist container so it fires exactly when YouTube adds new rows, with a 15-second hard disconnect as a safety net.
 4. **Removing** — the ✕ button removes the specific bookmark entry from Drive; the YouTube playlist item is only deleted when the last timestamp for that video is removed.
 
 The playlist description is updated on every save/remove to show all current timestamps (readable on any device even without the extension):
@@ -107,7 +108,7 @@ Drive file `watchytvat-bookmarks.json` (in `appDataFolder`, invisible to the use
       "videoId": "dQw4w9WgXcQ",
       "playlistItemId": "PLxxxxxxx-item-id",
       "title": "Video Title",
-      "thumbnail": null,
+      "thumbnail": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
       "seconds": 3226,
       "at": "53:46",
       "saved": "2026-05-15"
@@ -118,6 +119,7 @@ Drive file `watchytvat-bookmarks.json` (in `appDataFolder`, invisible to the use
 
 - `id` — unique per bookmark entry (base-36 timestamp + random suffix); used for targeted removal
 - `playlistItemId` — YouTube playlist item ID; shared across all timestamps for the same video
+- `thumbnail` — derived from `videoId` at save time (`i.ytimg.com/vi/{videoId}/mqdefault.jpg`); displayed as a 64×36 px thumbnail in the popup
 - `seconds` / `at` — the saved position (integer seconds and human-readable string)
 - `saved` — ISO date the bookmark was created
 
@@ -152,7 +154,7 @@ Two stores work together:
      videoId: string,       // YouTube video ID
      playlistItemId: string,// YouTube playlist item ID (shared across timestamps for same video)
      title: string,         // video title from document.title
-     thumbnail: null,
+     thumbnail: string,     // "https://i.ytimg.com/vi/{videoId}/mqdefault.jpg" — free, no API call
      seconds: number,       // integer seconds
      at: string,            // formatted "m:ss" or "h:mm:ss"
      saved: string          // "YYYY-MM-DD"
@@ -228,26 +230,33 @@ Extension actions:
     2. readBookmarks — check if any existing entry has this videoId
     3. If yes: reuse its playlistItemId and the cached playlist ID
        If no: findOrCreatePlaylist, POST /playlistItems to add video, get new playlistItemId
-    4. Prepend new bookmark object (with fresh generateId()) to bookmarks array
-    5. writeBookmarks
-    6. updatePlaylistDescription
+    4. Derive thumbnail URL: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` (no API call)
+    5. Prepend new bookmark object (with fresh generateId()) to bookmarks array
+    6. writeBookmarks
+    7. updatePlaylistDescription
 
   buildPlaylistDescription(bookmarks)
     — groups by videoId, produces one line per video:
       "53:46, 25:23 - Video Title\n1:02:10 - Other Title"
+    — QUOTA GUARD: drops whole-video lines from the end once adding the next line
+      would exceed 5000 characters (YouTube's playlist description limit)
 
   updatePlaylistDescription(token, playlistId, bookmarks)
     — PUT /playlists?part=snippet with id, snippet.title, snippet.description
 
   getPlaylistItems()
     1. getAuthToken(true), readBookmarks
-    2. If bookmarks non-empty and playlist ID is cached:
-       — paginate GET /playlistItems?part=id&playlistId=...&maxResults=50
-         to collect all active YouTube playlist item IDs into a Set
-       — filter bookmarks to only those whose playlistItemId is in the Set
-         (removes entries the user deleted from YouTube outside the extension)
-       — if any were pruned: writeBookmarks + updatePlaylistDescription
-    3. Return (possibly pruned) bookmarks
+    2. LAZY SYNC: read watchYtAtLastSync from chrome.storage.local;
+       if Date.now() - lastSync < SYNC_STALE_MS (5 min), skip steps 3-5 and return bookmarks
+    3. Paginate GET /playlistItems?part=id&playlistId=...&maxResults=50
+       to collect all active YouTube playlist item IDs into a Set
+    4. Store Date.now() as watchYtAtLastSync
+    5. Filter bookmarks to those whose playlistItemId is in the Set;
+       if any were pruned: writeBookmarks + updatePlaylistDescription
+    6. Return (possibly pruned) bookmarks
+
+  removePlaylistItem also calls chrome.storage.local.remove(LAST_SYNC_KEY) after writing,
+  so a manually removed item is never hidden by a stale sync cache.
 
   removePlaylistItem(entryId, videoId)
     1. readBookmarks
@@ -278,7 +287,7 @@ Message listener for "getVideoState":
 
 Playlist page injection:
   activeItemMap = null  // Map<videoId, Array<{seconds, at}>>
-  pollInterval = null
+  rowObserver = null    // MutationObserver for lazy playlist rows
 
   applyResumeButtons():
     — queries ytd-playlist-video-renderer:not([data-wyta-injected])
@@ -300,13 +309,16 @@ Playlist page injection:
           if (!activeItemMap[item.videoId]) activeItemMap[item.videoId] = [];
           activeItemMap[item.videoId].push({ seconds: item.seconds, at: item.at });
         })
-    — calls applyResumeButtons() immediately, then polls every 500 ms
-      (YouTube lazy-renders rows; poll until no uninjected rows remain)
-    — hard-stops after 15 seconds regardless
+    — calls applyResumeButtons() immediately
+    — MUTATIONOBSERVER: creates a MutationObserver on the playlist container
+      (document.querySelector("ytd-playlist-video-list-renderer") || document.body)
+      watching childList+subtree; on each mutation calls applyResumeButtons() and
+      disconnects when no uninjected rows remain
+    — hard-disconnects the observer after 15 seconds regardless
 
   SPA navigation detection:
     MutationObserver on document.documentElement watching childList+subtree;
-    when location.href changes: reset activeItemMap and pollInterval, call
+    when location.href changes: reset activeItemMap, disconnect rowObserver, call
     setupPlaylistInjection()
 
   Global menu close handler (add once via window._wytaMenuListenerAdded guard):
@@ -346,12 +358,15 @@ popup.js:
 
   onSave():
     — sends "save" action with { videoId, seconds, at, title, thumbnail:null }
+      (thumbnail is derived server-side in background.js from videoId)
     — on success: shows "✓ Saved!", closes popup after 900 ms
 
   loadItems():
     — sends "list"; groups results by videoId (Map, preserving insertion order)
     — renders one .item-group per video:
-        .item-group-title — video title (truncated, not a link)
+        .item-group-header (flex row) containing:
+          <img class="item-thumb" src="{thumbnail}"> — 64×36 px video thumbnail
+          .item-group-title — video title (2-line clamp, not a link)
         one .item-row per timestamp:
           <a class="item-link"> "▶ at X:XX · YYYY-MM-DD" → watch?v=...&t=seconds
           <button class="remove-btn"> ✕
@@ -364,8 +379,10 @@ popup.js:
 
 popup.css:
   .item-group — padding 6px 0, border-bottom 1px #f2f2f2; last-child no border
-  .item-group-title — 12px, 500 weight, truncated with ellipsis
-  .item-row — flex, gap 6px, padding 2px 0 2px 8px (indented under title)
+  .item-group-header — flex row, gap 7px, align-items center
+  .item-thumb — 64×36 px, object-fit cover, border-radius 3px, grey bg placeholder
+  .item-group-title — 12px, 500 weight, 2-line clamp
+  .item-row — flex, gap 6px, padding 2px 0 2px 8px (indented under header)
   .item-link hover — .item-meta turns red
   .item-meta — 11px, #888
   .remove-btn — no bg/border, grey ✕; hover shows light grey bg
@@ -408,8 +425,10 @@ KNOWN PITFALLS / NON-OBVIOUS DECISIONS
    document.documentElement to detect URL changes and re-run setupPlaylistInjection.
 
 6. Playlist rows are lazy-rendered — a single DOM pass on page load will miss most rows.
-   Poll applyResumeButtons every 500 ms, stopping when no uninjected rows remain, with a
-   15-second hard stop to avoid infinite polling.
+   Use a MutationObserver on the playlist container (ytd-playlist-video-list-renderer, or
+   document.body as fallback) watching childList+subtree. Disconnect when all rows are
+   injected or after a 15-second hard timeout. Do NOT use setInterval polling — it fires
+   constantly even when nothing has changed and is harder to clean up on SPA navigation.
 
 7. Removing a timestamp entry should only delete the YouTube playlist item when it is the
    last bookmark for that video — otherwise the video disappears from the playlist even
@@ -419,4 +438,13 @@ KNOWN PITFALLS / NON-OBVIOUS DECISIONS
    an "id" field (not just playlistItemId) because all timestamps for the same video share
    the same playlistItemId. Legacy entries without "id" can fall back to playlistItemId
    for removal.
+
+9. YouTube playlist description has a 5000-character limit — buildPlaylistDescription must
+   guard against exceeding it. Drop whole-video lines from the end of the output rather
+   than truncating mid-string, so every line that does appear is complete and readable.
+
+10. Sync-on-every-list-call adds noticeable latency to popup open — the YouTube playlist
+    cross-reference is an extra paginated API round-trip. Cache a lastSync timestamp and
+    skip the sync if it ran within the last 5 minutes. Invalidate the cache immediately on
+    any manual remove so deleted items never linger past the TTL.
 ```

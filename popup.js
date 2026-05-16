@@ -76,7 +76,7 @@ async function loadItems() {
   const groupMap = new Map();
   items.forEach(item => {
     if (!groupMap.has(item.videoId)) {
-      groupMap.set(item.videoId, { title: item.title, videoId: item.videoId, timestamps: [] });
+      groupMap.set(item.videoId, { title: item.title, videoId: item.videoId, thumbnail: item.thumbnail || null, timestamps: [] });
     }
     groupMap.get(item.videoId).timestamps.push({
       entryId: item.id || item.playlistItemId,  // id for new entries, playlistItemId fallback for legacy
@@ -90,10 +90,20 @@ async function loadItems() {
     const groupEl = document.createElement('div');
     groupEl.className = 'item-group';
 
+    const headerEl = document.createElement('div');
+    headerEl.className = 'item-group-header';
+    if (group.thumbnail) {
+      const img = document.createElement('img');
+      img.className = 'item-thumb';
+      img.src = group.thumbnail;
+      img.alt = '';
+      headerEl.appendChild(img);
+    }
     const titleEl = document.createElement('div');
     titleEl.className = 'item-group-title';
     titleEl.textContent = group.title;
-    groupEl.appendChild(titleEl);
+    headerEl.appendChild(titleEl);
+    groupEl.appendChild(headerEl);
 
     group.timestamps.forEach(ts => {
       const row = document.createElement('div');

@@ -107,14 +107,28 @@ h1 {
 .item-group:last-child {
   border-bottom: none;
 }
+.item-group-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+.item-thumb {
+  flex-shrink: 0;
+  width: 64px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: #e5e5e5;
+}
 .item-group-title {
   font-size: 12px;
   font-weight: 500;
   color: #333;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .item-row {

@@ -6,6 +6,8 @@ const PLAYLIST_NAME      = 'Watch Later At';
 const YT_PLAYLIST_KEY    = 'watchYtAtPlaylistId';
 const DRIVE_FILE_KEY     = 'watchYtAtDriveFileId';
 const BOOKMARKS_FILENAME = 'watchytvat-bookmarks.json';
+const LAST_SYNC_KEY      = 'watchYtAtLastSync';
+const SYNC_STALE_MS      = 5 * 60 * 1000; // skip YT cross-reference if synced within 5 min
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -239,7 +241,7 @@ async function saveVideoAt({ videoId, seconds, at, title, thumbnail }) {
     videoId,
     playlistItemId,
     title,
-    thumbnail: thumbnail || null,
+    thumbnail: thumbnail || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
     seconds,
     at,
     saved: new Date().toISOString().slice(0, 10),
@@ -250,6 +252,8 @@ async function saveVideoAt({ videoId, seconds, at, title, thumbnail }) {
   return { success: true };
 }
 
+const YT_DESCRIPTION_LIMIT = 5000;
+
 function buildPlaylistDescription(bookmarks) {
   if (!bookmarks.length) return '—';
   const byVideo = new Map();
@@ -257,7 +261,17 @@ function buildPlaylistDescription(bookmarks) {
     if (!byVideo.has(b.videoId)) byVideo.set(b.videoId, { title: b.title, ats: [] });
     byVideo.get(b.videoId).ats.push(b.at);
   });
-  return [...byVideo.values()].map(v => `${v.ats.join(', ')} - ${v.title}`).join('\n');
+  const lines = [...byVideo.values()].map(v => `${v.ats.join(', ')} - ${v.title}`);
+  // Drop whole-video lines from the end rather than cutting mid-string
+  const kept = [];
+  let len = 0;
+  for (const line of lines) {
+    const needed = (kept.length > 0 ? 1 : 0) + line.length;
+    if (len + needed > YT_DESCRIPTION_LIMIT) break;
+    kept.push(line);
+    len += needed;
+  }
+  return kept.join('\n') || '—';
 }
 
 async function updatePlaylistDescription(token, playlistId, bookmarks) {
@@ -276,12 +290,16 @@ async function getPlaylistItems() {
   const bookmarks = await readBookmarks(token);
   if (!bookmarks.length) return bookmarks;
 
-  // Cross-reference with the actual YouTube playlist to remove stale entries
-  // (items the user deleted directly from YouTube without using the extension).
-  const cached = await chrome.storage.local.get(YT_PLAYLIST_KEY);
-  const playlistId = cached[YT_PLAYLIST_KEY];
+  // Lazy sync: skip the YouTube API cross-reference if we synced recently.
+  const store = await chrome.storage.local.get([YT_PLAYLIST_KEY, LAST_SYNC_KEY]);
+  const playlistId = store[YT_PLAYLIST_KEY];
   if (!playlistId) return bookmarks;
 
+  const lastSync = store[LAST_SYNC_KEY] || 0;
+  if (Date.now() - lastSync < SYNC_STALE_MS) return bookmarks;
+
+  // Cross-reference with the actual YouTube playlist to remove stale entries
+  // (items the user deleted directly from YouTube without using the extension).
   let activeIds;
   try {
     activeIds = new Set();
@@ -295,6 +313,8 @@ async function getPlaylistItems() {
   } catch {
     return bookmarks; // sync failed — return what Drive has
   }
+
+  await chrome.storage.local.set({ [LAST_SYNC_KEY]: Date.now() });
 
   const synced = bookmarks.filter(b => !b.playlistItemId || activeIds.has(b.playlistItemId));
   if (synced.length < bookmarks.length) {
@@ -323,6 +343,8 @@ async function removePlaylistItem(entryId, videoId) {
   await writeBookmarks(token, remaining);
   const playlistId = await getPlaylistId();
   await updatePlaylistDescription(token, playlistId, remaining);
+  // Invalidate sync cache so the next list call re-checks the YouTube playlist
+  await chrome.storage.local.remove(LAST_SYNC_KEY);
 
   return { success: true };
 }

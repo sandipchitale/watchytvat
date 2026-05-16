@@ -31,7 +31,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // --- Playlist page: inject "Resume at X:XX" buttons ---
 
 let activeItemMap = null;  // keyed by videoId, set once we're on the right playlist
-let pollInterval = null;
+let rowObserver = null;
 
 function applyResumeButtons() {
   if (!activeItemMap) return;
@@ -130,18 +130,21 @@ async function setupPlaylistInjection() {
   });
   console.log('[WatchYTAt] Loaded', Object.keys(activeItemMap).length, 'items');
 
-  // Poll until all uninjected rows are processed (YouTube renders them lazily)
+  // Inject immediately, then watch for rows YouTube renders lazily
   applyResumeButtons();
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(() => {
+  if (rowObserver) rowObserver.disconnect();
+
+  const stopObserver = () => { rowObserver.disconnect(); rowObserver = null; };
+  rowObserver = new MutationObserver(() => {
     applyResumeButtons();
-    // Stop when there are no more uninjected rows left
     if (!document.querySelector('ytd-playlist-video-renderer:not([data-wyta-injected])')) {
-      clearInterval(pollInterval);
+      stopObserver();
     }
-  }, 500);
-  // Hard stop after 15 seconds regardless
-  setTimeout(() => clearInterval(pollInterval), 15000);
+  });
+  // Watch the playlist container; fall back to body if not yet in the DOM
+  const container = document.querySelector('ytd-playlist-video-list-renderer') || document.body;
+  rowObserver.observe(container, { childList: true, subtree: true });
+  setTimeout(() => { if (rowObserver) stopObserver(); }, 15000);
 }
 
 // SPA navigation detection — YouTube doesn't do full page reloads
@@ -150,7 +153,7 @@ new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     activeItemMap = null;
-    if (pollInterval) clearInterval(pollInterval);
+    if (rowObserver) { rowObserver.disconnect(); rowObserver = null; }
     setupPlaylistInjection();
   }
 }).observe(document.documentElement, { childList: true, subtree: true });
