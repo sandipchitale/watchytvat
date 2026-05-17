@@ -132,6 +132,11 @@ function scheduleAutoRefresh() {
 // Keep the "X min ago" label live
 setInterval(updateLastRefreshLabel, 30_000);
 
+// Refresh immediately when a save completes in the popup
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === 'bookmarksUpdated') loadItems();
+});
+
 async function init() {
   document.getElementById('refresh-btn').addEventListener('click', loadItems);
   await Promise.all([loadItems(), loadPlaylistLink()]);

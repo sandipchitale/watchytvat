@@ -356,7 +356,12 @@ async function removePlaylistItem(entryId, videoId) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handle = async () => {
     switch (message.action) {
-      case 'save': return saveVideoAt(message.data);
+      case 'save': {
+        const result = await saveVideoAt(message.data);
+        // Notify side panel to refresh if it is currently open
+        chrome.runtime.sendMessage({ action: 'bookmarksUpdated' }).catch(() => {});
+        return result;
+      }
       case 'list': return getPlaylistItems();
       case 'getPlaylistId': return getPlaylistId();
       case 'remove': return removePlaylistItem(message.entryId, message.videoId);
