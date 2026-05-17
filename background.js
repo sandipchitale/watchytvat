@@ -360,6 +360,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'list': return getPlaylistItems();
       case 'getPlaylistId': return getPlaylistId();
       case 'remove': return removePlaylistItem(message.entryId, message.videoId);
+      case 'openSidePanel':
+        await chrome.sidePanel.open({ windowId: message.windowId });
+        return { success: true };
       default: throw new Error(`Unknown action: ${message.action}`);
     }
   };

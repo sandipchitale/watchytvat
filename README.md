@@ -8,7 +8,8 @@ Save a YouTube video at its current timestamp into a private **"Watch Later At"*
 - **Multiple timestamps per video** — save the same video at different points; each is tracked separately
 - **Cross-device sync** — timestamps are stored in your Google Drive `appDataFolder` and sync automatically via your Google account
 - **Resume buttons on the playlist page** — opening the "Watch Later At" playlist injects a **▶ Resume at X:XX** button (or a **▶ Resume ▾** dropdown for multiple timestamps) next to each video
-- **Popup quick-list** — the toolbar popup shows all saved videos grouped by thumbnail + title, with individual ✕ buttons to remove any timestamp; includes a direct link to the playlist
+- **Side panel list** — a persistent sidebar shows all saved videos grouped by thumbnail + title, with individual ✕ remove buttons and a link to the playlist; auto-refreshes every 5 minutes and has a manual ↻ Refresh button
+- **Minimal popup** — the toolbar popup saves at the current timestamp and has a "View saved videos →" button that opens the side panel
 
 ## How it works
 
@@ -25,7 +26,7 @@ YouTube Data API v3          Google Drive appDataFolder
 ```
 
 1. **Saving** — the extension reads the current video time from the page, adds the video to the "Watch Later At" YouTube playlist (first save only; subsequent timestamps reuse the same playlist item), then prepends a bookmark entry to the Drive JSON file. The thumbnail URL is derived for free from the `videoId` — no extra API call.
-2. **Listing** — the popup reads the Drive file. To keep things snappy, it only cross-references against the live YouTube playlist if the last sync was more than 5 minutes ago (lazy sync with `watchYtAtLastSync` in `chrome.storage.local`). When a sync does run, any bookmark whose playlist item was deleted outside the extension is automatically pruned. The sync cache is invalidated immediately on manual removal so deleted items never linger.
+2. **Listing** — the side panel reads the Drive file. To keep things snappy, it only cross-references against the live YouTube playlist if the last sync was more than 5 minutes ago (lazy sync with `watchYtAtLastSync` in `chrome.storage.local`). When a sync does run, any bookmark whose playlist item was deleted outside the extension is automatically pruned. The sync cache is invalidated immediately on manual removal so deleted items never linger. The side panel also auto-refreshes the list every 5 minutes independently of the Drive/YouTube sync.
 3. **Resume injection** — on the playlist page the content script matches each row's `videoId` against the Drive bookmarks and injects a resume button or timestamp-picker dropdown. Row injection uses a `MutationObserver` on the playlist container so it fires exactly when YouTube adds new rows, with a 15-second hard disconnect as a safety net.
 4. **Removing** — the ✕ button removes the specific bookmark entry from Drive; the YouTube playlist item is only deleted when the last timestamp for that video is removed.
 
@@ -86,14 +87,17 @@ On first use Chrome shows a one-time consent screen. After that the extension us
 ## Files
 
 ```
-manifest.json      MV3 manifest — permissions, OAuth2, content scripts
-background.js      Service worker — YouTube & Drive API calls, auth, message router
-content.js         Injected on youtube.com — reads video time; injects resume UI on playlist page
-content.css        Styles for injected resume button and timestamp-picker dropdown
-popup.html         Toolbar popup markup
-popup.js           Popup logic — save, grouped list, remove, playlist link
-popup.css          Popup styles
-icons/             icon16.png, icon48.png, icon128.png (red rounded rect + play triangle + clock face)
+manifest.json        MV3 manifest — permissions (including sidePanel), OAuth2, content scripts
+background.js        Service worker — YouTube & Drive API calls, auth, message router
+content.js           Injected on youtube.com — reads video time; injects resume UI on playlist page
+content.css          Styles for injected resume button and timestamp-picker dropdown
+popup.html           Toolbar popup — save at current timestamp + "View saved videos →" button
+popup.js             Popup logic — save action, opens side panel via background message
+popup.css            Popup styles
+side_panel.html      Side panel markup — full saved-video list
+side_panel.js        Side panel logic — grouped list, remove, playlist link, 5-min auto-refresh
+side_panel.css       Side panel styles
+icons/               icon16.png, icon48.png, icon128.png (red rounded rect + play triangle + clock face)
 ```
 
 ## Data model
@@ -119,7 +123,7 @@ Drive file `watchytvat-bookmarks.json` (in `appDataFolder`, invisible to the use
 
 - `id` — unique per bookmark entry (base-36 timestamp + random suffix); used for targeted removal
 - `playlistItemId` — YouTube playlist item ID; shared across all timestamps for the same video
-- `thumbnail` — derived from `videoId` at save time (`i.ytimg.com/vi/{videoId}/mqdefault.jpg`); displayed as a 64×36 px thumbnail in the popup
+- `thumbnail` — derived from `videoId` at save time (`i.ytimg.com/vi/{videoId}/mqdefault.jpg`); displayed as an 80×45 px thumbnail in the side panel
 - `seconds` / `at` — the saved position (integer seconds and human-readable string)
 - `saved` — ISO date the bookmark was created
 
@@ -168,11 +172,12 @@ for a given video; subsequent saves for the same video reuse the existing playli
 MANIFEST (manifest.json)
 ──────────────────────────────────────────────────────────────────────────────
 - manifest_version: 3
-- permissions: ["identity", "storage", "activeTab", "scripting"]
+- permissions: ["identity", "storage", "activeTab", "scripting", "sidePanel"]
 - host_permissions: ["https://www.youtube.com/*", "https://www.googleapis.com/*"]
 - background service_worker: background.js
 - content_scripts: content.js + content.css on https://www.youtube.com/*, run_at document_idle
 - action: popup.html, icon set
+- side_panel: { default_path: "side_panel.html" }
 - oauth2:
     client_id: "REPLACE_WITH_YOUR_CLIENT_ID.apps.googleusercontent.com"
     scopes:
@@ -272,7 +277,13 @@ Message router (chrome.runtime.onMessage):
   "list"          → getPlaylistItems()
   "getPlaylistId" → getPlaylistId()
   "remove"        → removePlaylistItem(message.entryId, message.videoId)
+  "openSidePanel" → chrome.sidePanel.open({ windowId: message.windowId })
   Return true from the listener to keep the channel open for async sendResponse.
+
+  NOTE: chrome.sidePanel.open() is called from the background service worker (not from the
+  popup directly) because the background reliably has the sidePanel API available as soon
+  as the permission is declared. The popup sends { action: "openSidePanel", windowId } and
+  closes itself; the background opens the panel.
 
 ──────────────────────────────────────────────────────────────────────────────
 CONTENT SCRIPT (content.js)
@@ -341,52 +352,79 @@ CONTENT STYLES (content.css)
 ──────────────────────────────────────────────────────────────────────────────
 POPUP (popup.html + popup.js + popup.css)
 ──────────────────────────────────────────────────────────────────────────────
+The popup is intentionally minimal — it handles saving only. The full video list
+lives in the side panel (see below).
+
 HTML layout:
-  .header — red bar with icon48 + "Watch YT VideosAt" title
+  .header — red bar with icon48 + "Watch YT Videos At" title
   #current-video.section.hidden — video title + "Save at X:XX" button (shown on watch pages)
   #not-on-video.section — "Open a YouTube video to save your position."
-  .section — "Saved in 'Watch Later At'" header with #playlist-link (↗ icon, initially hidden)
-           — #items-list
-           — #empty-state.muted.hidden "No saved items yet."
+  .section — #open-sidebar-btn "View saved videos →" (always shown)
 
 popup.js:
   init():
     — queries active tab; if youtube.com/watch: sends "getVideoState" to content script
     — if response is valid: shows #current-video, fills title + time, hides #not-on-video
     — registers save-btn click → onSave()
-    — calls loadItems() and loadPlaylistLink()
+    — registers open-sidebar-btn click → openSidebar()
 
   onSave():
     — sends "save" action with { videoId, seconds, at, title, thumbnail:null }
-      (thumbnail is derived server-side in background.js from videoId)
+      (thumbnail is derived in background.js from videoId)
     — on success: shows "✓ Saved!", closes popup after 900 ms
+
+  openSidebar():
+    — sends { action: "openSidePanel", windowId: currentTab.windowId } to background
+    — closes the popup (window.close())
+
+popup.css:
+  .sidebar-btn — full-width outlined red button; fills red on hover
+
+──────────────────────────────────────────────────────────────────────────────
+SIDE PANEL (side_panel.html + side_panel.js + side_panel.css)
+──────────────────────────────────────────────────────────────────────────────
+The side panel is hidden by default; the user opens it via "View saved videos →" in the
+popup. Chrome keeps it open alongside the page until the user closes it.
+
+HTML layout:
+  .header — red bar with icon48 + "Watch YT Videos At" title
+  .toolbar — flex row: #last-refresh label (left) + #playlist-link ↗ Playlist + #refresh-btn ↻ Refresh (right)
+  .items-section — scrollable; contains #items-list and #empty-state
+
+side_panel.js:
+  REFRESH_INTERVAL_MS = 5 * 60 * 1000  (5 minutes)
+
+  init():
+    — registers refresh-btn click → loadItems()
+    — calls loadItems() and loadPlaylistLink() in parallel
+    — calls scheduleAutoRefresh() — setInterval(loadItems, REFRESH_INTERVAL_MS)
+    — setInterval(updateLastRefreshLabel, 30_000) — keeps "Updated Xm ago" label live
 
   loadItems():
     — sends "list"; groups results by videoId (Map, preserving insertion order)
     — renders one .item-group per video:
         .item-group-header (flex row) containing:
-          <img class="item-thumb" src="{thumbnail}"> — 64×36 px video thumbnail
-          .item-group-title — video title (2-line clamp, not a link)
+          <img class="item-thumb" src="{thumbnail}"> — 80×45 px video thumbnail
+          .item-group-title — video title (2-line clamp)
         one .item-row per timestamp:
           <a class="item-link"> "▶ at X:XX · YYYY-MM-DD" → watch?v=...&t=seconds
           <button class="remove-btn"> ✕
-            on click: sends "remove" with { entryId: item.id || item.playlistItemId, videoId }
-            on success: removes row; if group has no more rows removes group;
-                        shows empty-state if list is now empty
+            on click: sends "remove" with { entryId, videoId }
+            on success: removes row; removes group if empty; shows empty-state if list empty
+    — records lastRefreshTime = Date.now(); calls updateLastRefreshLabel()
 
   loadPlaylistLink():
-    — sends "getPlaylistId"; if string result: sets href on #playlist-link and removes .hidden
+    — sends "getPlaylistId"; sets href on #playlist-link and removes .hidden
 
-popup.css:
-  .item-group — padding 6px 0, border-bottom 1px #f2f2f2; last-child no border
-  .item-group-header — flex row, gap 7px, align-items center
-  .item-thumb — 64×36 px, object-fit cover, border-radius 3px, grey bg placeholder
-  .item-group-title — 12px, 500 weight, 2-line clamp
-  .item-row — flex, gap 6px, padding 2px 0 2px 8px (indented under header)
-  .item-link hover — .item-meta turns red
-  .item-meta — 11px, #888
-  .remove-btn — no bg/border, grey ✕; hover shows light grey bg
-  .playlist-link — small grey ↗ link floated right in .section-header; red on hover
+  updateLastRefreshLabel():
+    — formats elapsed time since lastRefreshTime as "Updated just now" / "Xm ago" / "Xh ago"
+
+side_panel.css:
+  body — flex column, height 100vh, overflow hidden (header+toolbar fixed; items scroll)
+  .toolbar — flex row, space-between, border-bottom
+  .items-section — flex:1, overflow-y:auto
+  .item-thumb — 80×45 px (slightly larger than popup variant)
+  (item-group, item-row, item-link, remove-btn — same structure as popup)
 
 ──────────────────────────────────────────────────────────────────────────────
 ICONS
@@ -447,4 +485,10 @@ KNOWN PITFALLS / NON-OBVIOUS DECISIONS
     cross-reference is an extra paginated API round-trip. Cache a lastSync timestamp and
     skip the sync if it ran within the last 5 minutes. Invalidate the cache immediately on
     any manual remove so deleted items never linger past the TTL.
+
+11. chrome.sidePanel is undefined in the popup context until the extension is fully reloaded
+    after the "sidePanel" permission is added — and in some Chrome builds it is simply not
+    exposed to extension pages at all. Call chrome.sidePanel.open() from the background
+    service worker instead (via a "openSidePanel" message from the popup). The background
+    reliably has all declared APIs available as soon as the service worker starts.
 ```
