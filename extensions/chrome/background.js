@@ -68,7 +68,7 @@ async function findOrCreatePlaylist(token) {
 
   const created = await ytCall('POST', '/playlists?part=snippet,status', token, {
     snippet: { title: PLAYLIST_NAME, description: 'Videos saved with timestamp by the Watch YT Videos At extension.' },
-    status: { privacyStatus: 'private' },
+    status: { privacyStatus: 'unlisted' },
   });
   await chrome.storage.local.set({ [YT_PLAYLIST_KEY]: created.id });
   return created.id;

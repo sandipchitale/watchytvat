@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "mobile-app",
+    "slug": "mobile-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "watchytvat",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.watchytvat.mobileapp",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "youtube"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.watchytvat.mobileapp",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.811082099836-0evakgpsgmk9bgnaeannl738q28pbqil"
+        }
+      ],
+      "expo-share-intent"
+    ]
+  }
+}

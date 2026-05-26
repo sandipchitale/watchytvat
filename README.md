@@ -79,13 +79,14 @@ Edit `manifest.json`:
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked** and select this folder
-4. The Watch YT Videos At icon appears in your toolbar
+3. Click **Load unpacked** and select the `extensions/chrome` subfolder
+4. The Watch Later At icon appears in your toolbar
 
 On first use Chrome shows a one-time consent screen. After that the extension uses your existing Google login silently. If you ever add a new scope to the manifest, Chrome may return a stale cached token; the extension handles this automatically by detecting 401/403 scope errors and re-requesting a fresh token.
 
 ## Files
 
+### Chrome Extension (`extensions/chrome/`)
 ```
 manifest.json        MV3 manifest — permissions (including sidePanel), OAuth2, content scripts
 background.js        Service worker — YouTube & Drive API calls, auth, message router
@@ -98,6 +99,13 @@ side_panel.html      Side panel markup — full saved-video list
 side_panel.js        Side panel logic — grouped list, remove, playlist link, 5-min auto-refresh
 side_panel.css       Side panel styles
 icons/               icon16.png, icon48.png, icon128.png (red rounded rect + play triangle + clock face)
+```
+
+### Mobile App (`mobile-app/`)
+```
+App.tsx              Main React Native entrypoint (auth, dashboards, deep linking, safe area styling)
+package.json         Mobile dependencies (Expo SDK, React Native, Nativewind, etc.)
+app.json             Expo configurations (SDK, bundle identifier, plugins)
 ```
 
 ## Data model

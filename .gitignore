@@ -1,1 +1,6 @@
 client_secret_*.json
+.DS_Store
+mobile-app/android-app-client-id
+mobile-app/client_811082099836-0evakgpsgmk9bgnaeannl738q28pbqil.apps.googleusercontent.com.plist
+mobile-app/ios-app-client-id
+mobile-app/web-app-client-id

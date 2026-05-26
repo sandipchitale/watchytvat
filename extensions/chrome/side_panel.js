@@ -13,10 +13,7 @@ function escapeHtml(str) {
 function updateLastRefreshLabel() {
   const el = document.getElementById('last-refresh');
   if (!lastRefreshTime) { el.textContent = ''; return; }
-  const secs = Math.round((Date.now() - lastRefreshTime) / 1000);
-  if (secs < 10) el.textContent = 'Updated just now';
-  else if (secs < 3600) el.textContent = `Updated ${Math.floor(secs / 60) || 1}m ago`;
-  else el.textContent = `Updated ${Math.floor(secs / 3600)}h ago`;
+  el.textContent = `Updated: ${new Date(lastRefreshTime).toLocaleString()}`;
 }
 
 async function loadItems() {
